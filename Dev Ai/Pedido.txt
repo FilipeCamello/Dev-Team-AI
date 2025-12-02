@@ -14,7 +14,7 @@ import google.generativeai as genai
 # ---------------------------------------------------------
 # CONFIGURAÇÃO
 # ---------------------------------------------------------
-os.environ["GOOGLE_API_KEY"] = "AIzaSyBAPHcnGffC6-D4uEZK5Vk-z4SFNH5Tmf8"
+os.environ["GOOGLE_API_KEY"] = ""
 try:
     genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
 except Exception as e:
@@ -250,4 +250,5 @@ if __name__ == "__main__":
     else:
         print(f"FALHA! O limite de {max_iteracoes} iterações foi atingido sem consenso.")
         print(f"==============================================\n")
+
         print(f"--- ÚLTIMA VERSÃO DO CÓDIGO OU MENSAGEM DE ERRO ---\n{ultimo_codigo_valido}")
