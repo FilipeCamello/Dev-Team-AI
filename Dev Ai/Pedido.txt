@@ -1,0 +1,253 @@
+Dado o seguinte código fonte, crie uma interface intuitiva para o usuário em Streamlit para que o usuário entra com o prompt e receba a saída desejada.
+Se possível, faça com que a saída seja formatada em um formato condizente com a linguagem pedida pelo usuário. 
+Crie-o em um arquivo separado, e use este arquivo chamado agentes.py como ponto de início para o novo arquivo
+Troque o input via arquivo por um pedido de prompt na interface. Use o código passado como o arquivo agentes.py. NÃO CRIE UM ARQUIVO NOVO CHAMADO AGENTES.PY, 
+USE O CÓDIGO QUE FOI DADO COMO ELE.
+
+Código:
+#arquivo agentes.py, não alterar
+from google.adk.agents import LlmAgent
+import textwrap
+import os
+import google.generativeai as genai 
+
+# ---------------------------------------------------------
+# CONFIGURAÇÃO
+# ---------------------------------------------------------
+os.environ["GOOGLE_API_KEY"] = "AIzaSyBAPHcnGffC6-D4uEZK5Vk-z4SFNH5Tmf8"
+try:
+    genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
+except Exception as e:
+    print(f"Erro ao configurar o cliente Gemini: {e}")
+
+# ---------------------------------------------------------
+# INSTRUÇÕES REFORÇADAS
+# ---------------------------------------------------------
+
+instrucao_eng_software = textwrap.dedent("""\
+    Você é um engenheiro de software renomado. Sua tarefa é receber o 'PEDIDO DO CLIENTE' (que pode conter um código existente e/ou 
+    uma nova funcionalidade) e transformá-lo em uma especificação técnica detalhada.
+
+    1. **Análise do Código Base:** Revise o código base fornecido.
+       - Se o pedido for criar uma nova funcionalidade separada, como uma interface ou ferramenta (Ex: Streamlit)
+       para um código backend, categorize-o como **CÓDIGO BASE NÃO APLICÁVEL**.
+       - Caso contrário, categorize-o como **CÓDIGO BASE APLICÁVEL** (e ele deve ser modificado).
+    2. **Foco:** A especificação deve ser *diretamente* sobre o desafio do cliente. Mantenha total fidelidade.
+
+    Sua resposta deve ser dividida em duas seções CLARAS:
+
+    --- ESPECIFICACAO TECNICA ---
+    [Defina funções, entradas, saídas e requisitos da aplicação. A prioridade máxima é a tarefa principal solicitada.]
+
+    --- CONTEXTO ORIGINAL DO CLIENTE ---
+    [Defina: A) O PEDIDO ORIGINAL do cliente. B) O código base fornecido. C) Uma nota: **CÓDIGO BASE: [APLICÁVEL/NÃO APLICÁVEL]**]
+    """)
+
+instrucao_dev = textwrap.dedent("""\
+    Você é um DEV Senior. Você receberá uma 'ESPECIFICACAO TECNICA' e o 'CONTEXTO ORIGINAL DO CLIENTE', que inclui uma 
+    classificação sobre o código base.
+
+    1. **PRIORIDADE MÁXIMA:** Sua tarefa é *unicamente* codificar a solução conforme a 'ESPECIFICACAO TECNICA'.
+    2. **Ação no Código Base:**
+       - Se a classificação for **CÓDIGO BASE: NÃO APLICÁVEL**, crie o código do zero (como uma nova interface).
+       - Se a classificação for **CÓDIGO BASE: APLICÁVEL**, você **DEVE** modificar o código fornecido.
+    3. **Qualidade:** Faça o código em português, seguindo boas práticas e PEP8. Gere apenas a versão de produção.
+
+    Sua resposta deve ser estruturada exatamente assim:
+
+    --- CODIGO PYTHON ---
+    [Cole o bloco de código Python final, pronto para ser usado, que IMPLEMENTA A ESPECIFICAÇÃO.]
+
+    --- CONTEXTO ORIGINAL DO CLIENTE ---
+    [Cole o 'CONTEXTO ORIGINAL DO CLIENTE' exatamente como recebido do Engenheiro/Gerente.]
+    """)
+
+# Revisores e QA são mantidos com pequenas alterações para dar atenção ao pedido
+instrucao_revisor = textwrap.dedent("""\
+    Você é um revisor de código. Analise erros de sintaxe e PEP8. Se atenha ao que o usuário pediu, verificando se o código atende o CONTEXTO ORIGINAL.
+    - Se encontrar erros: Liste-os.
+    - Se o código estiver perfeito sintaticamente: Responda APENAS com a frase 'STATUS: APROVADO'.""")
+
+instrucao_beta_tester = textwrap.dedent("""\
+    Você é um Beta Tester. Tente quebrar a lógica do código, focando na funcionalidade pedida no CONTEXTO ORIGINAL.
+    - Se encontrar falhas ou bugs lógicos: Descreva-os. 
+    - Se a lógica estiver sólida: Responda APENAS com a frase 'STATUS: APROVADO'.""")
+
+instrucao_controle_qualidade = textwrap.dedent("""\
+    Você é o QA (Controle de Qualidade). Avalie a experiência e requisitos, garantindo que o código final atenda ao CONTEXTO ORIGINAL do cliente.
+    - Se houver problemas de usabilidade ou requisitos não atendidos: Liste-os.
+    - Se estiver tudo excelente: Responda APENAS com a frase 'STATUS: APROVADO'.""")
+
+instrucao_gerente_lancamento = textwrap.dedent("""\
+    Você é o Release Manager. Leia os relatórios do Revisor, Beta Tester e QA.
+    Regras Rígidas:
+    1. Se E SOMENTE SE os três relatórios contiverem a frase 'STATUS: APROVADO':
+        Sua resposta deve ser EXATAMENTE: 'TERMINATE'.
+    2. Caso contrário (se houver qualquer erro):
+        Consolide todos os feedbacks negativos em uma lista de tarefas CLARAS para o Dev. 
+        **Você DEVE incluir o 'CONTEXTO ORIGINAL DO CLIENTE' (que está na sua entrada de trabalho) na sua resposta**, para que o Dev saiba qual código corrigir e qual funcionalidade implementar/corrigir.
+        NÃO gere código. Apenas as instruções de correção e o contexto original formatados como '--- CONTEXTO ORIGINAL DO CLIENTE --- [Conteúdo]'.
+    """)
+
+# ---------------------------------------------------------
+# AGENTES (Alterado para PRO para maior fidelidade)
+# ---------------------------------------------------------
+
+eng_software = LlmAgent(
+    name="eng_software", 
+    model="gemini-2.5-pro", 
+    description="Decidir qual a melhor forma de desenvolver uma aplicação", 
+    instruction=instrucao_eng_software)
+
+dev = LlmAgent(
+    name="dev", 
+    model="gemini-2.5-pro", 
+    description="Codificar a aplicação conforme instrução do engenheiro de software", 
+    instruction=instrucao_dev)
+
+revisor = LlmAgent(
+    name="Revisor", 
+    model="gemini-2.5-pro", 
+    description="Revisar erros no código do desenvolvedor que impedem a compilação do mesmo", 
+    instruction=instrucao_revisor)
+
+beta_tester = LlmAgent(
+    name="beta_tester", 
+    model="gemini-2.5-pro", 
+    description="Testar o código do desenvolvedor para procurar possíveis bugs e mal funcionamento", 
+    instruction=instrucao_beta_tester)
+
+controle_qualidade = LlmAgent(
+    name="controle_qualidade", 
+    model="gemini-2.5-pro", 
+    description="Garantir que o usuário da aplicação recebida tenha uma boa experiência com o seu produto", 
+    instruction=instrucao_controle_qualidade)
+
+gerente_lancamento = LlmAgent(
+    name="gerente_lancamento", 
+    model="gemini-2.5-pro", 
+    description="Gerente que decide se o software vai para produção.", 
+    instruction=instrucao_gerente_lancamento) 
+
+# ---------------------------------------------------------
+# FUNÇÃO DE EXECUÇÃO SÍNCRONA
+# ---------------------------------------------------------
+
+def executar_agente_sincronamente(agente, entrada):
+    """
+    Usa o SDK do Gemini diretamente para garantir uma chamada síncrona e retorna uma string pura.
+    """
+    prompt_completo = (
+        f"Instrução do Agente '{agente.name}' ({agente.description}): {agente.instruction}\n\n"
+        f"ENTRADA DE TRABALHO: {entrada}"
+    )
+
+    client = genai.GenerativeModel(model_name=agente.model)
+    
+    try:
+        response = client.generate_content(
+            contents=prompt_completo,
+            # Garantimos a estabilidade e determinismo na resposta
+            generation_config={'temperature': 0.0} 
+        )
+        return response.text
+    except Exception as e:
+        return f"ERRO DE EXECUÇÃO DO LLM PARA {agente.name}: {e}"
+
+# ---------------------------------------------------------
+# EXECUÇÃO DO WORKFLOW COM PARSING DO CONTEXTO
+# ---------------------------------------------------------
+
+if __name__ == "__main__":
+    print("\n--- Sistema Iniciado ---")
+    
+    NOME_ARQUIVO_PEDIDO = "Pedido.txt"
+    try:
+        with open(NOME_ARQUIVO_PEDIDO, "r", encoding="utf-8") as f:
+            pedido_do_cliente = f.read()
+        print(f"✅ Pedido inicial lido de '{NOME_ARQUIVO_PEDIDO}'. Tamanho: {len(pedido_do_cliente)} caracteres.")
+    except FileNotFoundError:
+        print(f"🚨 ERRO: O arquivo '{NOME_ARQUIVO_PEDIDO}' não foi encontrado.")
+        pedido_do_cliente = input(">> Digite o software que você quer criar: ")
+
+    # 1. Engenheiro Gera a Spec
+    print(f"\n[1] Engenheiro gerando especificação...")
+    # A saída do engenheiro já contém a especificação e o CONTEXTO ORIGINAL
+    especificacao_e_contexto = executar_agente_sincronamente(eng_software, pedido_do_cliente)
+
+    # Inicialização do loop
+    entrada_atual = especificacao_e_contexto # A entrada para o DEV é a saída do Engenheiro
+    ultimo_codigo_valido = ""
+    contexto_original_dev = "" # Variável para armazenar o contexto a ser repassado
+    max_iteracoes = 30
+    iteracao_atual = 0
+    loop_terminado = False
+
+    print("\n--- [2] Iniciando Loop de Desenvolvimento (Controle Manual) ---")
+
+    while iteracao_atual < max_iteracoes and not loop_terminado:
+        iteracao_atual += 1
+        print(f"\n🔄 ITERAÇÃO {iteracao_atual} de {max_iteracoes}")
+
+        # A. Desenvolvedor trabalha (Cria ou Corrige)
+        codigo_e_contexto = executar_agente_sincronamente(dev, entrada_atual)
+
+        # 💥 LÓGICA DE PARSING PARA EXTRAIR CÓDIGO E CONTEXTO 💥
+        if "--- CONTEXTO ORIGINAL DO CLIENTE ---" in codigo_e_contexto:
+            parts = codigo_e_contexto.split("--- CONTEXTO ORIGINAL DO CLIENTE ---", 1)
+            
+            # O código é a primeira parte, sem os marcadores
+            codigo_gerado = parts[0].replace("--- CODIGO PYTHON ---", "").strip() 
+            
+            # O contexto é a segunda parte, mantendo o marcador para ser repassado no feedback
+            contexto_original_dev = "--- CONTEXTO ORIGINAL DO CLIENTE ---" + parts[1].strip()
+        else:
+            # Fallback se o DEV não seguir o formato (assume-se que a saída é apenas código)
+            codigo_gerado = codigo_e_contexto
+            contexto_original_dev = ""
+            print("   ⚠️ Aviso: DEV não seguiu o formato de saída. Contexto original não repassado.")
+        
+        ultimo_codigo_valido = codigo_gerado 
+        print(f"   -> Dev gerou nova versão do código.")
+
+        # B. Verificadores analisam o código gerado
+        print("   -> Rodando verificadores...")
+        
+        # Passamos o código e o contexto original para os revisores
+        analise_input = f"CONTEXTO ORIGINAL:\n{contexto_original_dev}\n\nAnalise o seguinte código:\n{codigo_gerado}"
+        
+        analise_revisor = executar_agente_sincronamente(revisor, analise_input)
+        analise_tester = executar_agente_sincronamente(beta_tester, analise_input)
+        analise_qa = executar_agente_sincronamente(controle_qualidade, analise_input)
+
+        # C. Compilando os relatórios para o Gerente
+        relatorio_completo = (
+            f"Relatório Revisor: {analise_revisor}\n"
+            f"Relatório Tester: {analise_tester}\n"
+            f"Relatório QA: {analise_qa}"
+        )
+        
+        # D. Gerente Decide
+        # O Gerente recebe os relatórios E o contexto original, para incluir no feedback, se for o caso.
+        gerente_input = f"RELATÓRIOS DOS REVISORES:\n{relatorio_completo}\n\nCONTEXTO NECESSÁRIO PARA O FEEDBACK:\n{contexto_original_dev}"
+        decisao = executar_agente_sincronamente(gerente_lancamento, gerente_input) 
+
+        # E. Lógica de Parada
+        if "TERMINATE" in decisao:
+            print("   ✅ GERENTE APROVOU! O loop será encerrado.")
+            loop_terminado = True
+        else:
+            print("   ❌ GERENTE REPROVOU. Feedback enviado ao Dev.")
+            # O feedback do gerente (que inclui o contexto original) vira a entrada para o Dev na próxima volta
+            entrada_atual = decisao
+
+    # --- RESULTADO FINAL ---
+    print(f"\n==============================================")
+    if loop_terminado:
+        print(f"SUCESSO! Projeto concluído em {iteracao_atual} iterações.")
+        print(f"==============================================\n")
+        print(f"--- CÓDIGO FINAL ---\n{ultimo_codigo_valido}")
+    else:
+        print(f"FALHA! O limite de {max_iteracoes} iterações foi atingido sem consenso.")
+        print(f"==============================================\n")
+        print(f"--- ÚLTIMA VERSÃO DO CÓDIGO OU MENSAGEM DE ERRO ---\n{ultimo_codigo_valido}")
