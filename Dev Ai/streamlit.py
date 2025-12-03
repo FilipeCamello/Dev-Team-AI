@@ -16,7 +16,6 @@ except Exception as e:
 # ---------------------------------------------------------
 # INICIALIZAÇÃO DE ESTADO E CALLBACKS
 # ---------------------------------------------------------
-# Inicialização de estado de sessão
 if 'workflow_em_execucao' not in st.session_state:
     st.session_state.workflow_em_execucao = False
 if 'abort_workflow' not in st.session_state:
@@ -40,8 +39,6 @@ def extrair_codigo_base(texto_cliente: str) -> Tuple[str, str]:
     if match:
         codigo = match.group(1).strip()
         codigo = re.sub(r"```python\s*|```", "", codigo).strip()
-        
-        # Remove o código base do pedido textual
         pedido_textual = texto_cliente.replace(match.group(0), "").strip()
         return pedido_textual, codigo
     
@@ -59,18 +56,18 @@ st.caption(f"Status da API: {'🔑 Configurada' if CHAVE_API else '🚨 Chave Au
 if not CHAVE_API:
     st.warning("A variável de ambiente `GOOGLE_API_KEY` não está configurada ou está inválida.")
 
-# Texto padrão genérico (será usado como placeholder)
+# Texto padrão genérico
 texto_padrao_generico = (
     "Descreva a funcionalidade que você deseja criar (e a linguagem de preferência, ex: Java, JavaScript, Python).\n"
     "Se houver um código existente para modificar, cole-o no final.\n\n"
     "CÓDIGO DADO:\n"
-    "***Cole seu código aqui, se aplicável***"
+    "// Cole seu código aqui, se aplicável"
 )
 
 pedido_completo = st.text_area(
     "📝 Pedido do Cliente:",
     height=300,
-    placeholder=texto_padrao_generico, # <--- USAMOS 'placeholder' AGORA
+    placeholder=texto_padrao_generico,
     disabled=st.session_state.workflow_em_execucao 
 )
 
@@ -87,14 +84,12 @@ max_iter = st.sidebar.slider(
 # CONTROLES DE INÍCIO E PARADA
 col1, col2 = st.columns([1, 1])
 
-# Botão INICIAR
 col1.button(
     "🚀 Iniciar Workflow de Desenvolvimento", 
     disabled=st.session_state.workflow_em_execucao,
     on_click=set_start_flag 
 )
 
-# Botão ABORTAR
 col2.button(
     "🚫 Abortar Operação", 
     disabled=not st.session_state.workflow_em_execucao, 
@@ -121,10 +116,16 @@ if st.session_state.workflow_em_execucao:
     # Placeholders para o display dinâmico
     status_box = st.empty()
     progresso_bar = st.progress(0, text="Aguardando...")
+    
+    # Container para o histórico detalhado
+    st.subheader("📜 Histórico de Iterações e Reprovações")
     historico = st.container()
 
     start_time = time.time()
     iter_total = 0
+    
+    # Variável para controlar o expander atual fora do loop
+    expander_atual = None
 
     try:
         # Itera sobre o gerador do workflow para obter atualizações
@@ -134,32 +135,56 @@ if st.session_state.workflow_em_execucao:
             max_iteracoes=max_iter
         ):
             # 3. Atualiza o status e o histórico
-            
             status_type = update.get("status")
             iter_total = update.get("iteracao", iter_total)
+            mensagem = update.get("mensagem")
 
             # Atualiza a barra de progresso
             if status_type in ["iteracao_inicio", "dev_completo", "feedback"]:
                  progresso_value = iter_total / max_iter
                  progresso_bar.progress(progresso_value, text=f"Iteração {iter_total}/{max_iter}")
             
-            # Atualiza a caixa de status principal e o histórico
-            mensagem = update.get("mensagem")
+            # --- LÓGICA DE VISUALIZAÇÃO DETALHADA ---
             
             if status_type == "iniciado":
                 status_box.info(f"➡️ **{mensagem}**")
+                
             elif status_type == "engenheiro_completo":
                 status_box.success(f"➡️ **{mensagem}**")
+                
             elif status_type == "iteracao_inicio":
-                status_box.info(f"**Iteração {iter_total}:** {mensagem}")
-                historico.markdown(f"**--- Iteração {iter_total} ---**")
+                status_box.info(f"**Trabalhando na Iteração {iter_total}...**")
+                # Cria um novo expander para esta iteração dentro do histórico
+                # 'expanded=True' mantém aberto para ver o progresso atual
+                with historico:
+                    expander_atual = st.expander(f"🔄 Detalhes da Iteração {iter_total}", expanded=True)
+                    expander_atual.markdown("---")
+            
+            elif status_type == "dev_completo":
+                if expander_atual:
+                    expander_atual.info("🛠️ **Dev:** Código gerado e enviado para verificação.")
+
             elif status_type == "analise":
-                status_box.caption(f"Status da análise: {mensagem}")
+                status_box.caption(f"Analisando: {mensagem}")
+                # Mostra o relatório do verificador dentro do expander
+                if expander_atual:
+                    agente_nome = update.get("agente")
+                    # Formatação visual para cada agente
+                    icon = "🕵️" if "Revisor" in agente_nome else "🧪" if "Beta" in agente_nome else "🛡️"
+                    expander_atual.markdown(f"**{icon} {agente_nome}:** {mensagem.split(':', 1)[1]}")
+
             elif status_type == "verificadores_completos":
-                status_box.success(f"✔️ **Iteração {iter_total}:** {mensagem}")
+                status_box.info(mensagem)
+
             elif status_type == "feedback":
-                status_box.warning(f"⚠️ **Iteração {iter_total}:** Código Reprovado. Enviando feedback...")
-                historico.code(mensagem, language='text')
+                # AQUI ESTÁ O MOTIVO DA REPROVAÇÃO
+                status_box.warning(f"⚠️ Iteração {iter_total}: Código Reprovado.")
+                if expander_atual:
+                    expander_atual.error("❌ **GERENTE REPROVOU**")
+                    expander_atual.markdown("**Motivo / Feedback enviado ao Dev:**")
+                    # Exibe o feedback completo como código para facilitar leitura
+                    # A mensagem aqui contém o texto extraído do 'else' no agente_workflow.py
+                    expander_atual.code(mensagem, language='text')
 
             time.sleep(0.1) 
             
@@ -181,12 +206,12 @@ if st.session_state.workflow_em_execucao:
                     st.code(resultado, language=linguagem)
                 else:
                     st.error("🚨 Workflow Interrompido ou Falhou.")
-                    st.text_area("Resultado/Feedback", resultado, height=300)
+                    st.subheader("Último Estado / Erro:")
+                    st.text_area("Detalhes", resultado, height=300)
 
-                # Limpeza final do estado e recarga do script
+                # Limpeza final do estado sem rerun imediato para manter o resultado na tela
                 st.session_state.workflow_em_execucao = False
                 st.session_state.abort_workflow = False
-                st.rerun() 
                 break
                 
     except Exception as e:
@@ -194,4 +219,3 @@ if st.session_state.workflow_em_execucao:
         progresso_bar.empty()
         st.session_state.workflow_em_execucao = False
         st.session_state.abort_workflow = False
-        st.rerun()

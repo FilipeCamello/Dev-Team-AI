@@ -252,14 +252,35 @@ def executar_workflow_de_desenvolvimento(pedido_do_cliente: str, codigo_base: st
         gerente_input = f"RELATÓRIOS DOS REVISORES:\n{relatorio_completo}\n\nCONTEXTO NECESSÁRIO PARA O FEEDBACK:\n{contexto_original_dev}"
         decisao = executar_agente_sincronamente(AGENTE_GERENTE, gerente_input) 
 
-        # D. Lógica de Parada
-        if "TERMINATE" in decisao:
+# agente_workflow.py
+
+# ... (após a linha decisao = executar_agente_sincronamente(...))
+
+        # D. Lógica de Parada (Com Segurança de Parsing)
+        decisao_limpa = decisao.strip()
+        
+        # 1. Checagem de Término
+        if "TERMINATE" in decisao_limpa: 
             loop_terminado = True
             yield {"status": "terminado", "sucesso": True, "codigo": ultimo_codigo_valido, "linguagem": linguagem_pedida}
             return
+            
+        # 2. Processamento do Feedback (Quando Reprovado)
         else:
             entrada_atual = decisao
-            yield {"status": "feedback", "iteracao": iteracao_atual, "mensagem": f"❌ Reprovado. Feedback enviado ao Dev:\n{decisao.split('--- CONTEXTO ORIGINAL DO CLIENTE ---')[0].strip()}"}
+            
+            # --- BLOCO DE SEGURANÇA CRÍTICO ---
+            try:
+                # Tenta extrair apenas o feedback antes do marcador de contexto
+                feedback_mensagem = decisao_limpa.split('--- CONTEXTO ORIGINAL DO CLIENTE ---', 1)[0].strip()
+            except Exception as e:
+                # Se falhar no split ou parsing, usa a decisão completa.
+                # Isso impede o crash do gerador.
+                feedback_mensagem = f"ERRO DE PARSING DE FEEDBACK: {e}\n\nDECISÃO COMPLETA:\n{decisao_limpa}"
+            # -----------------------------------
 
-    # Se atingir o limite de iterações sem TERMINATE
-    yield {"status": "terminado", "sucesso": False, "codigo": ultimo_codigo_valido, "linguagem": linguagem_pedida, "mensagem": f"Falha: Limite de {max_iteracoes} iterações atingido sem consenso."}
+            # 3. YIELD DE FEEDBACK (Agora seguro contra crashes de string)
+            yield {"status": "feedback", "iteracao": iteracao_atual, 
+                  "mensagem": f"❌ Reprovado. Feedback enviado ao Dev:\n{feedback_mensagem}"}
+            
+            # O loop continua para a próxima iteração
